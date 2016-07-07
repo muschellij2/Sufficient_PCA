@@ -7,6 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+cacher = FALSE
 ```
 
 # Setup of the problem
@@ -34,7 +35,7 @@ $$
 
 ### R Example
 
-```{r data_prcomp, cache = TRUE}
+```{r data_prcomp, cache=cacher}
 set.seed(20160706)
 p = 81
 R = 4e5
@@ -43,7 +44,7 @@ Z = scale(Y, center = TRUE, scale = TRUE)
 ```
 
 Here we will do the PCA using `prcomp` on $Z$:
-```{r prcomp, cache=TRUE, dependson="data_prcomp"}
+```{r prcomp, cache=cacher, dependson="data_prcomp"}
 system.time({
     pc_comp = prcomp(
       x = Z, 
@@ -55,7 +56,7 @@ system.time({
 
 Which is equivalent to doing the SVD (which `prcomp` does, as it calls `svd`) and then multiplying by $V$: 
 
-```{r svd_z, cache=TRUE, dependson="data_prcomp"}
+```{r svd_z, cache=cacher, dependson="data_prcomp"}
 system.time({
     svd_z = svd(Z, nu = 0)
     pc_svd_z = Z %*% svd_z$v
@@ -63,7 +64,7 @@ system.time({
 ```
 
 We check to make sure the correlation is $1$ (or $-1$ depending on sign variance) between the PCs for both methods and see they are equal (up to some floating point rounding).
-```{r equiv, cache=TRUE, dependson="data_prcomp"}
+```{r equiv, cache=cacher, dependson="data_prcomp"}
 identical(dim(pc_svd_z), dim(pcs))
 corr_pcs = diag(cor(pcs, pc_svd_z))
 corr_pcs = abs(corr_pcs) # sign variance
@@ -86,7 +87,7 @@ So we can estimate $V$ using the SVD (or LDLT decomposition) of $C$.
 ### R Code
 
 Again we will create $C$ and get $V$, as contained in `svd_cov$u` as it is the left singular vector from the equation above.  We could have also transposed the result of `svd_cov$v`: 
-```{r pc_cov_z, cache=TRUE, dependson="data_prcomp"}
+```{r pc_cov_z, cache=cacher, dependson="data_prcomp"}
 system.time({
     cov = t(Z) %*% Z
     svd_cov = svd(cov, nv = 0)
@@ -94,7 +95,7 @@ system.time({
 })
 ```
 
-```{r equiv_cov, cache=TRUE}
+```{r equiv_cov, cache=cacher}
 identical(dim(pc_svd_z), dim(pc_cov_z))
 corr_pcs = diag(cor(pc_cov_z, pc_svd_z))
 corr_pcs = abs(corr_pcs) # sign variance
@@ -102,7 +103,7 @@ all(abs(corr_pcs - 1) < 1e-10)
 ```
 
 Also, just as a double check, we can see that the right singular vectors from the SVD of the covariance `svd_cov_all$v` is equal to those on the left:
-```{r left_is_right, cache=TRUE, dependson="data_prcomp"}
+```{r left_is_right, cache=cacher, dependson="data_prcomp"}
 svd_cov_all = svd(cov)
 max(abs(svd_cov_all$u - svd_cov_all$v))
 ```
@@ -220,7 +221,7 @@ pca_stats = function(L){
 
 Here we make some fake splitting of the data.  For example, let's say you have `5` subjects:
 
-```{r split, cache = TRUE, dependson="data_prcomp"}
+```{r split, cache=cacher, dependson="data_prcomp"}
 n_ids = 5
 ids = sample(1:n_ids, size = R, replace = TRUE)
 X_i = lapply(1:n_ids, function(id) {
@@ -257,14 +258,14 @@ make_cov = function(suff_L){
 ```
 
 Now we run the function, extract the covariance and see it's equivalent to doing Cov(Z), with some floating point rounding:
-```{r combine, cache=TRUE, dependson = "split"}
+```{r combine, cache=cacher, dependson = "split"}
 res = make_cov(stats)
 split_cov = res$C
 max(abs(cov - split_cov)) < 1e-7
 ```
 
 We similarly note the singular vectors from the SVD from this covariance are equivalent to that of Cov(Z):
-```{r pc_cov_split, cache=TRUE, dependson="data_prcomp"}
+```{r pc_cov_split, cache=cacher, dependson="data_prcomp"}
 system.time({
     svd_split_cov = svd(split_cov, nv = 0)
 })
@@ -272,7 +273,7 @@ max(abs(svd_split_cov$u - svd_cov$u )) < 1e-7
 ```
 
 And finally that the resultant PCs from applying this SVD is equivalent to using the Cov(Z), and therefore the original SVD of Z:
-```{r equiv_cov_split, cache=TRUE}
+```{r equiv_cov_split, cache=cacher}
 pc_split = Z %*% svd_split_cov$u
 identical(dim(pc_split), dim(pc_cov_z))
 corr_pcs = diag(cor(pc_cov_z, pc_split))

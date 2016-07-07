@@ -156,14 +156,14 @@ Z = scale(Y, center = TRUE, scale = TRUE)</code></pre>
     pcs = pc_comp$x
 })</code></pre>
 <pre><code>##    user  system elapsed 
-##  13.026   0.397  13.483</code></pre>
+##  14.333   0.642  15.621</code></pre>
 <p>Which is equivalent to doing the SVD (which <code>prcomp</code> does, as it calls <code>svd</code>) and then multiplying by <span class="math inline">\(V\)</span>:</p>
 <pre class="r"><code>system.time({
     svd_z = svd(Z, nu = 0)
     pc_svd_z = Z %*% svd_z$v
 })</code></pre>
 <pre><code>##    user  system elapsed 
-##  12.447   0.274  12.754</code></pre>
+##  14.414   0.459  15.676</code></pre>
 <p>We check to make sure the correlation is <span class="math inline">\(1\)</span> (or <span class="math inline">\(-1\)</span> depending on sign variance) between the PCs for both methods and see they are equal (up to some floating point rounding).</p>
 <pre class="r"><code>identical(dim(pc_svd_z), dim(pcs))</code></pre>
 <pre><code>## [1] TRUE</code></pre>
@@ -193,7 +193,7 @@ As we know <span class="math inline">\(Z = U D V^{t}\)</span>, we have the follo
     pc_cov_z = Z %*% svd_cov$u 
 })</code></pre>
 <pre><code>##    user  system elapsed 
-##   5.431   0.139   5.584</code></pre>
+##   6.430   0.272   7.157</code></pre>
 <pre class="r"><code>identical(dim(pc_svd_z), dim(pc_cov_z))</code></pre>
 <pre><code>## [1] TRUE</code></pre>
 <pre class="r"><code>corr_pcs = diag(cor(pc_cov_z, pc_svd_z))
@@ -331,7 +331,7 @@ max(abs(cov - split_cov)) &lt; 1e-7</code></pre>
     svd_split_cov = svd(split_cov, nv = 0)
 })</code></pre>
 <pre><code>##    user  system elapsed 
-##   0.006   0.000   0.007</code></pre>
+##   0.004   0.000   0.003</code></pre>
 <pre class="r"><code>max(abs(svd_split_cov$u - svd_cov$u )) &lt; 1e-7</code></pre>
 <pre><code>## [1] TRUE</code></pre>
 <p>And finally that the resultant PCs from applying this SVD is equivalent to using the Cov(Z), and therefore the original SVD of Z:</p>
