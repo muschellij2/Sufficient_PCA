@@ -1,0 +1,298 @@
+---
+title: "Sufficient PCA Values"
+author: "John Muschelli"
+date: "July 6, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup of the problem
+
+## Single subject information
+Let $X_i$ be a $r_i \times p$ matrix, where $r_i$ denotes the number of voxels in the brain for person $i$.  In our case, each column $p$ represents the neighborhood represents the $27$ neighbors for that voxel for the $4$ imaging sequences, so $p = 108$.  In other cases, $r_i$ may denote the time of the day (functional data) and $p$ may represent the axes of an accelerometer or multiple measurements.  In this case $r_i >> p$.  
+
+## Population level information
+
+Let $Y$ be the stacked (by rows) of all $X_i$ over all $i$.   Let $R = \sum_{i} r_i$, so that $Y$ is $R \times p$.  Let $\mu$ represent the vector of column means of $Y$ and $\sigma$ the vector of column standard deviations (both estimated).  
+
+## PCA as SVD
+Let's define $Z = \frac{Y - \mu}{\sigma}$, where we abuse the notation a bit between vectors and matrices (we can do it with outer products on $\mathbb{1}$).  Now, if we do the Singular Value Decomposition (SVD) of $Z$:
+$$
+Z = U D V^{t}
+$$
+So that $U$ ($R\times p$), $D$ ($p \times p$, diagonal with non-zero elements for $k$ entries), and $V^{t}$ ($p\times p$).  We know that $V^{t} = V^{-1}$, so that $V^{t} V = V V^{t} = I_{p}$, $U^{t} U = I_{p}$ from properties of the SVD. 
+
+
+Now we know that the left singular vectors ($U$) are the principal component scores (PCs), up to some scaling.  Also, by matrix multiplication on the right we know:
+$$
+ZV = U D
+$$
+
+
+### R Example
+
+```{r data_prcomp, cache = TRUE}
+set.seed(20160706)
+p = 81
+R = 4e5
+Y = matrix(rnorm(p * R, mean = 6, sd = 4), nrow = R, ncol = p)
+Z = scale(Y, center = TRUE, scale = TRUE)
+```
+
+Here we will do the PCA using `prcomp` on $Z$:
+```{r prcomp, cache=TRUE, dependson="data_prcomp"}
+system.time({
+    pc_comp = prcomp(
+      x = Z, 
+      center = FALSE,
+      scale. = FALSE)
+    pcs = pc_comp$x
+})
+```
+
+Which is equivalent to doing the SVD (which `prcomp` does, as it calls `svd`) and then multiplying by $V$: 
+
+```{r svd_z, cache=TRUE, dependson="data_prcomp"}
+system.time({
+    svd_z = svd(Z, nu = 0)
+    pc_svd_z = Z %*% svd_z$v
+})
+```
+
+We check to make sure the correlation is $1$ (or $-1$ depending on sign variance) between the PCs for both methods and see they are equal (up to some floating point rounding).
+```{r equiv, cache=TRUE, dependson="data_prcomp"}
+identical(dim(pc_svd_z), dim(pcs))
+corr_pcs = diag(cor(pcs, pc_svd_z))
+corr_pcs = abs(corr_pcs) # sign variance
+all(abs(corr_pcs - 1) < 1e-10)
+```
+
+## SVD of Cross-product Matrix
+Let $C = Z^{t}Z$ ($p \times p$).  
+As we know $Z = U D V^{t}$, we have the following:
+
+$$
+\begin{align}
+  C = Z^{t}Z & = V D U^{t} U D V^{t} \\
+  & = V D D V^{t} \\
+  & = V D^2 V^{t} \\
+\end{align}
+$$
+So we can estimate $V$ using the SVD (or LDLT decomposition) of $C$.
+
+### R Code
+
+Again we will create $C$ and get $V$, as contained in `svd_cov$u` as it is the left singular vector from the equation above.  We could have also transposed the result of `svd_cov$v`: 
+```{r pc_cov_z, cache=TRUE, dependson="data_prcomp"}
+system.time({
+    cov = t(Z) %*% Z
+    svd_cov = svd(cov, nv = 0)
+    pc_cov_z = Z %*% svd_cov$u 
+})
+```
+
+```{r equiv_cov, cache=TRUE}
+identical(dim(pc_svd_z), dim(pc_cov_z))
+corr_pcs = diag(cor(pc_cov_z, pc_svd_z))
+corr_pcs = abs(corr_pcs) # sign variance
+all(abs(corr_pcs - 1) < 1e-10)
+```
+
+Also, just as a double check, we can see that the right singular vectors from the SVD of the covariance `svd_cov_all$v` is equal to those on the left:
+```{r left_is_right, cache=TRUE, dependson="data_prcomp"}
+svd_cov_all = svd(cov)
+max(abs(svd_cov_all$u - svd_cov_all$v))
+```
+
+## Sufficient Statistics
+
+### Sufficient statistics for Projection
+For each individual subject $X_i$, we must get $Z_i$:
+$$
+Z_i = \frac{X_i - \mu}{\sigma}
+$$
+But $\mu$ and $\sigma$ are calculated using the population estimates from these.  Therefore, if we have a population-level $V$ and these statistics, we can simply project $X_i$ onto that basis using:
+$$
+P_i = Z_i V
+$$
+
+### Sufficient Statistics for Cross Product
+Now that we can simply decompose $C$ and get the $V$ matrix.  We would like to calculate $C$ by doing operations on individual $X_i$ then aggregating this information.  The sufficient statistic for $\mu$ is simply $s_i$ where $s_i$ is the column sums of $X_i$ and $n_i$:
+$$
+\mu = \frac{\sum_{i} s_i}{\sum_{i} n_i}
+$$
+since $\sum_{i} s_i$ equals the column sums of $Y$ and $\sum_{i} n_i = R$ is the number of rows of $Y$.  
+
+Thus, we can calculate the sum of any column and $R$ from the $s_i$ and $n_i$ for all $i$.
+
+For $\sigma$ we have:
+$$
+\begin{align}
+  \sigma^{2}_{1} &= \frac{\sum_R (y_{1} - \mu_1)^2}{R - 1} \\
+  &= \frac{\sum_R y_{1}^2 - 2 \mu_1 \sum_R y_{1} + R \mu_1^2}{R - 1}
+\end{align}
+$$
+We can estimate $\mu$ and $\sum_R y_{1}$ from the $s_{i}$ and $n_i$ information above. Thus, we simply need $\sum_R y_{1}^2$, and thus if we keep $s^{(2)}_i$ where $s^{(2)}_i$ is the column sums of the squared entries of $X_i$.  We can also reduce the above equation more so that:
+
+$$
+\begin{align}
+  \sigma^{2}_{1} &= \frac{\sum_R y_{1}^2 - R\mu_1^2}{R - 1}
+\end{align}
+$$
+for simplicity.  
+
+Note: Everything saved/esimated at this point is length $p$ or a scalar.
+
+#### Cross Product
+The elements of $C$ are as follows:
+$$
+  \begin{align}
+C_{j, k} &= \frac{\sum_{R} (y_{j} - \mu_{j})(y_{k} - \mu_{k})}{\sigma_{j} \sigma_{k}} \\
+&= \frac{\sum_{R} y_{j}y_{k} - \mu_{j} \sum_{R} y_{k} - \mu_{k} \sum_{R} y_{j} + \sum_{R} \mu_{j} \mu_{k}}{\sigma_{j} \sigma_{k}} \\
+\end{align}
+$$
+
+Now, we know $\sum_{R} y_{k}$ and $\sum_{R} y_{j}$ from the $s_{i}$ from above.  
+
+Moreover, as 
+$$
+\mu_{j} = \frac{\sum_R y_{j}}{R} \\
+R \mu_{j} = \sum_R y_{j} \\
+$$
+we have the following:
+$$
+\begin{align}
+C_{j, k} &= \frac{\sum_{R} y_{j}y_{k} - \mu_{j} \sum_{R} y_{k} - \mu_{k} \sum_{R} y_{j} + \sum_{R} \mu_{j} \mu_{k}}{\sigma_{j} \sigma_{k}} \\
+ &= \frac{\sum_{R} y_{j}y_{k} - \mu_{j} R \mu_{k} - \mu_{k} R \mu_{j} + R \mu_{j} \mu_{k}}{\sigma_{j} \sigma_{k}} \\
+  &= \frac{\sum_{R} y_{j}y_{k} - R  \mu_{j} \mu_{k}}{\sigma_{j} \sigma_{k}} \\
+\end{align}
+$$
+
+The only outstanding piece of information we need is:
+$$
+\sum_{R} y_{j}y_{k} \forall j, k
+$$
+which can be esimated from $C_i$:
+$$
+C_i = X_{i}^{t}X_{i}
+$$
+which is only $p \times p$.
+
+We take the outer product of $\mu$ with itself to give matrix $M$ and similarly with $\sigma$ to give matrix $S$ so that:
+$$
+C = \sum_{i} \frac{C_i - M}{S}
+$$
+where operations are performed element-wise.  
+
+### R code
+Below we have the function `pca_stats` that computes the specific sufficient statistics we need if passed a list of matrices `L`.  This functions is equivalent to blocking the data and then running the statistics.  It's not that useful other than the parts where the values are computed because usually if you can store `L` in memory, it's more efficient to just use the `Z` from above.
+
+```{r funcs}
+pca_stats = function(L){
+    N = length(L)
+    tmp_l = vector(mode = "list",
+        length = N)
+    suff_L = list(
+        cross_i = tmp_l,
+        csums_i = tmp_l,
+        csums_sq_i = tmp_l,
+        n_i = tmp_l
+        )
+    iid = 1
+    for (iid in seq(N)) {
+        mat = L[[iid]]
+        mat = as.matrix(mat)
+        cross_i = crossprod(mat)
+        csums_i = colSums(mat)
+        csums_sq_i = colSums(mat ^ 2)
+        n_i = nrow(mat)
+        suff_L$cross_i[[iid]] = cross_i 
+        suff_L$csums_i[[iid]] = csums_i 
+        suff_L$csums_sq_i[[iid]] = csums_sq_i 
+        suff_L$n_i[[iid]] = n_i 
+    }
+    return(suff_L)
+}
+```
+
+Here we make some fake splitting of the data.  For example, let's say you have `5` subjects:
+
+```{r split, cache = TRUE, dependson="data_prcomp"}
+n_ids = 5
+ids = sample(1:n_ids, size = R, replace = TRUE)
+X_i = lapply(1:n_ids, function(id) {
+  Y[ids == id,]
+})
+stats = pca_stats(X_i)
+```
+
+Now, if we were running each invididual separately and aggregating their sufficient statistics together, it should look like a list like `stats`.  The `make_cov` function below will combine the information to the necessary covariance matrix and the mean/standard deviation vectors:
+
+```{r combiner}
+make_cov = function(suff_L){
+    # stopifnot(fslr::same_dims(suff_L$cross_i))
+    # mu = mapply(function(cs, n){
+    #     cs/n
+    # }, suff_L$csums_i, suff_L$n_i,
+    #     SIMPLIFY = FALSE)
+    s_i = Reduce("+", suff_L$csums_i)
+    R = Reduce("+", suff_L$n_i)
+    mu = s_i / R
+    s2_i = Reduce("+", suff_L$csums_sq_i)
+    sigma = sqrt((s2_i - R* mu ^ 2)/(R - 1))
+    sigma_mat = outer(sigma, sigma)
+
+    mu_mat = outer(mu, mu)
+
+    C = Reduce("+", suff_L$cross_i)
+    C = (C - R *mu_mat)/sigma_mat
+    L = list(sigma = sigma,
+             mu = mu,
+             C =  C)
+    return(L)
+}
+```
+
+Now we run the function, extract the covariance and see it's equivalent to doing Cov(Z), with some floating point rounding:
+```{r combine, cache=TRUE, dependson = "split"}
+res = make_cov(stats)
+split_cov = res$C
+max(abs(cov - split_cov)) < 1e-7
+```
+
+We similarly note the singular vectors from the SVD from this covariance are equivalent to that of Cov(Z):
+```{r pc_cov_split, cache=TRUE, dependson="data_prcomp"}
+system.time({
+    svd_split_cov = svd(split_cov, nv = 0)
+})
+max(abs(svd_split_cov$u - svd_cov$u )) < 1e-7
+```
+
+And finally that the resultant PCs from applying this SVD is equivalent to using the Cov(Z), and therefore the original SVD of Z:
+```{r equiv_cov_split, cache=TRUE}
+pc_split = Z %*% svd_split_cov$u
+identical(dim(pc_split), dim(pc_cov_z))
+corr_pcs = diag(cor(pc_cov_z, pc_split))
+corr_pcs = abs(corr_pcs) # sign variance
+all(abs(corr_pcs - 1) < 1e-10)
+```
+
+
+## Conclusions
+So that we need to store the column sums $s_i$, column sums of the squares $s^{(2)}_i$, the number of rows for each matrix $X_i$ ($n_i$), as well as the cross-product of $X_i$.  
+
+These values will be sufficient to create the necessary elements for a memory-efficient PCA/SVD.  Moreover, we can estimate $V$ with this SVD and then calculate the projections on a subject level, so that the full $Y$ and $Z$ matrices never need to be loaded in memory.
+
+## Functions
+A function will take in a list of matrices, create the sufficient statistics in a list.  Another function will take these statistics and calculate the $C$ matrix using the equations above, perform the SVD, returning $\mu$ and $\sigma$ for projection.
+  
+
+
+
+
+
+
+
