@@ -252,7 +252,8 @@ make_cov = function(suff_L){
     C = (C - R *mu_mat)/sigma_mat
     L = list(sigma = sigma,
              mu = mu,
-             C =  C)
+             C =  C, 
+             R = R)
     return(L)
 }
 ```
@@ -273,12 +274,50 @@ max(abs(svd_split_cov$u - svd_cov$u )) < 1e-7
 ```
 
 And finally that the resultant PCs from applying this SVD is equivalent to using the Cov(Z), and therefore the original SVD of Z:
-```{r equiv_cov_split, cache=cacher}
+```{r equiv_cov_split, cache=cacher, dependson="pc_cov_split"}
 pc_split = Z %*% svd_split_cov$u
 identical(dim(pc_split), dim(pc_cov_z))
 corr_pcs = diag(cor(pc_cov_z, pc_split))
 corr_pcs = abs(corr_pcs) # sign variance
 all(abs(corr_pcs - 1) < 1e-10)
+```
+
+```{r suff_prcomp, eval = TRUE}
+suff_prcomp = function(suff_L){
+  res = make_cov(suff_L)
+  split_cov = res$C
+  R = res$C
+  cen = res$mu
+  scl = res$sigma
+  
+  system.time({
+      svd_split_cov = svd(split_cov, nv = 0)
+  })
+  d = sqrt(svd_split_cov$d)
+  d = d / sqrt(max(1, R - 1))  
+  
+  # pc_split = Z %*% svd_split_cov$u
+
+  dimnames(svd_split_cov$u) = 
+    list(NULL, 
+      paste0("PC", seq_len(ncol(svd_split_cov$u)))
+    )
+
+  r = list(sdev = d,
+    center = cen,
+    scale = scl,
+    rotation = svd_split_cov$u,
+    vcov = C
+    )
+  class(r) <- "prcomp"  
+  return(r)
+}
+```
+
+```{r run_suff_prcomp, cache=cacher, dependson="split"}
+suff_pca = suff_prcomp(stats)
+plot(suff_pca)
+summary(suff_pca)
 ```
 
 
